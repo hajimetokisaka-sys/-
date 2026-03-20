@@ -75,7 +75,8 @@
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
-            const [duplicateVoteInfo, setDuplicateVoteInfo] = useState(null); // 重複投票の警告用
+            const [duplicateVoteInfo, setDuplicateVoteInfo] = useState(null); 
+            const [adminErrorInfo, setAdminErrorInfo] = useState(null); // 管理画面用のエラーモーダル状態
             const [sounds, setSounds] = useState([]);
             const [teams, setTeams] = useState([]); 
             const [votes, setVotes] = useState([]);
@@ -96,8 +97,8 @@
             const [loginError, setLoginError] = useState(false);
 
             // 編集用の一時状態
-            const [editingTeam, setEditingTeam] = useState(null); // { id, name }
-            const [editingSound, setEditingSound] = useState(null); // { id, name }
+            const [editingTeam, setEditingTeam] = useState(null); 
+            const [editingSound, setEditingSound] = useState(null);
 
             useEffect(() => {
                 const initAuth = async () => {
@@ -303,7 +304,7 @@
                         </div>
                     )}
 
-                    {/* 重複投票警告モーダル */}
+                    {/* 重複投票警告モーダル（ユーザー用） */}
                     {duplicateVoteInfo && (
                         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
                             <div className="bg-white w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-200">
@@ -320,9 +321,33 @@
                                 <button 
                                     onClick={() => {
                                         setDuplicateVoteInfo(null);
-                                        setTeamName(''); // 選択をリセット
+                                        setTeamName(''); 
                                     }}
                                     className="w-full py-4 rounded-2xl font-black text-sm text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all shadow-lg shadow-slate-200"
+                                >
+                                    わかりました
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 管理画面用エラーモーダル（サウンド重複登録など） */}
+                    {adminErrorInfo && (
+                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
+                            <div className="bg-white w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-200">
+                                <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                    <Icon name="AlertTriangle" className="w-10 h-10" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black text-slate-800">登録できません</h3>
+                                    <p className="text-sm text-slate-500 leading-relaxed">
+                                        チーム「<span className="font-black text-rose-500">{adminErrorInfo.teamName}</span>」には、すでにサウンドが登録されています。
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 font-bold italic pt-2">※1チームにつき登録できるサウンドは1つまでです</p>
+                                </div>
+                                <button 
+                                    onClick={() => setAdminErrorInfo(null)}
+                                    className="w-full py-4 rounded-2xl font-black text-sm text-white bg-rose-600 hover:bg-rose-700 active:scale-95 transition-all shadow-lg shadow-rose-200"
                                 >
                                     わかりました
                                 </button>
@@ -549,10 +574,10 @@
                                             <button 
                                                 onClick={() => { 
                                                     if(newSoundName && newSoundTeam){ 
-                                                        // 1チーム1サウンド制限のチェック
                                                         const alreadyHasSound = sounds.find(s => s.teamName === newSoundTeam);
                                                         if (alreadyHasSound) {
-                                                            notify(`チーム「${newSoundTeam}」はすでに登録済です`);
+                                                            // ポップアップエラーを表示
+                                                            setAdminErrorInfo({ teamName: newSoundTeam });
                                                             return;
                                                         }
 
@@ -596,7 +621,6 @@
                                                                 {s.displayRank}
                                                             </div>
                                                             <div className="flex items-center gap-3 flex-1">
-                                                                {/* サウンド削除ボタン: 赤丸の中に✖ */}
                                                                 <button 
                                                                     onClick={() => confirm(`${s.name} を削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} 
                                                                     className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500 text-white hover:bg-rose-600 transition-all active:scale-90 shadow-md shrink-0"
