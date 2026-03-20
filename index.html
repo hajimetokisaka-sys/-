@@ -33,7 +33,7 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useMemo } = React;
 
         // --- User Firebase Config ---
         const firebaseConfig = {
@@ -50,7 +50,7 @@
         const db = getFirestore(app);
         const appId = "nana-event-manager";
 
-        // --- Lucide Icon Helper ---
+        // --- Lucide Icon Helper (Fixed to avoid toSvg error) ---
         const Icon = ({ name, className }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -89,7 +89,7 @@
             const [selectedIds, setSelectedIds] = useState([]);
             
             const [newSoundName, setNewSoundName] = useState('');
-            const [newSoundTeam, setNewSoundTeam] = useState(''); // 新規：追加サウンドの所属チーム
+            const [newSoundTeam, setNewSoundTeam] = useState('');
             const [newTeamName, setNewTeamName] = useState(''); 
             const [adminPass, setAdminPass] = useState('');
             const [editTitle, setEditTitle] = useState('');
@@ -136,7 +136,7 @@
 
                 const unsubTeams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (s) => {
                     const teamsData = s.docs.map(d => ({ id: d.id, ...d.data() }));
-                    // タイムスタンプ順（エントリー順）に並び替え
+                    // チームリスト自体はエントリー順でソート
                     teamsData.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
                     setTeams(teamsData);
                 });
@@ -147,6 +147,27 @@
 
                 return () => { unsubConfig(); unsubSounds(); unsubTeams(); unsubVotes(); };
             }, [user]);
+
+            // チームのエントリー順（タイムスタンプ）をマップ化
+            const teamTimestampMap = useMemo(() => {
+                const map = {};
+                teams.forEach(t => {
+                    map[t.name] = new Date(t.timestamp || 0).getTime();
+                });
+                return map;
+            }, [teams]);
+
+            // サウンドリストを「所属チームのエントリー順」でソート
+            const sortedSoundsByTeamEntry = useMemo(() => {
+                return [...sounds].sort((a, b) => {
+                    const timeA = teamTimestampMap[a.teamName] || Infinity;
+                    const timeB = teamTimestampMap[b.teamName] || Infinity;
+                    
+                    if (timeA !== timeB) return timeA - timeB;
+                    // 同じチーム内ならサウンドのエントリー順
+                    return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
+                });
+            }, [sounds, teamTimestampMap]);
 
             const notify = (msg) => { setShowToast(msg); setTimeout(() => setShowToast(null), 3000); };
             
@@ -179,7 +200,7 @@
                 return c;
             })();
 
-            const sortedSounds = [...sounds].map(s => {
+            const sortedSoundsForRanking = [...sounds].map(s => {
                 const count = voteCounts[s.id] || 0;
                 const relevantVotes = votes.filter(v => v.selectedIds.includes(s.id));
                 const lastVoteTime = relevantVotes.length > 0 
@@ -194,7 +215,7 @@
             // 連番順位（Dense Ranking）
             let currentRank = 0;
             let lastCount = -1;
-            const rankedSounds = sortedSounds.map((s) => {
+            const rankedSounds = sortedSoundsForRanking.map((s) => {
                 if (s.count !== lastCount) {
                     currentRank++;
                     lastCount = s.count;
@@ -202,8 +223,8 @@
                 return { ...s, displayRank: currentRank };
             });
 
-            // 自分のチームのサウンドを除外するフィルタリング
-            const filteredSounds = sounds.filter(s => s.teamName !== teamName);
+            // 自分のチームのサウンドを除外 + チームのエントリー順でソート
+            const filteredSounds = sortedSoundsByTeamEntry.filter(s => s.teamName !== teamName);
 
             const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
 
@@ -305,7 +326,7 @@
                                                 value={teamName} 
                                                 onChange={e => {
                                                     setTeamName(e.target.value);
-                                                    setSelectedIds([]); // チーム変更時は選択をリセット（不整合防止）
+                                                    setSelectedIds([]); 
                                                 }} 
                                                 className={`w-full p-4 rounded-2xl bg-slate-50 border-2 outline-none text-sm font-bold appearance-none cursor-pointer transition-all ${!teamName ? 'border-transparent focus:border-indigo-300' : 'border-emerald-100 focus:border-emerald-300'}`}
                                             >
@@ -396,7 +417,7 @@
                                             if(newTeamName){ 
                                                 addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), { 
                                                     name: newTeamName,
-                                                    timestamp: new Date().toISOString() // 登録時間を保存
+                                                    timestamp: new Date().toISOString()
                                                 }).then(() => setNewTeamName('')); 
                                             } 
                                         }} className="bg-emerald-600 text-white px-6 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition-transform">追加</button>
@@ -435,7 +456,8 @@
                                                     if(newSoundName && newSoundTeam){ 
                                                         addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), { 
                                                             name: newSoundName, 
-                                                            teamName: newSoundTeam 
+                                                            teamName: newSoundTeam,
+                                                            timestamp: new Date().toISOString()
                                                         }).then(() => {
                                                             setNewSoundName('');
                                                             setNewSoundTeam('');
