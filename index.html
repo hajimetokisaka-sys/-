@@ -50,7 +50,7 @@
         const db = getFirestore(app);
         const appId = "nana-event-manager";
 
-        // --- Lucide Icon Helper (Fixed to avoid toSvg error) ---
+        // --- Lucide Icon Helper ---
         const Icon = ({ name, className }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -69,15 +69,13 @@
         };
 
         function App() {
-            // ==========================================
-            // 管理画面のパスワード設定
-            // ==========================================
+            // 管理画面パスワード
             const ADMIN_PASSWORD = "dyanbo2107"; 
-            // ==========================================
 
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+            const [duplicateVoteInfo, setDuplicateVoteInfo] = useState(null); // 重複投票の警告用
             const [sounds, setSounds] = useState([]);
             const [teams, setTeams] = useState([]); 
             const [votes, setVotes] = useState([]);
@@ -121,7 +119,7 @@
             useEffect(() => {
                 if (!user) return;
                 
-                const unsubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), (ds) => {
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), (ds) => {
                     if (ds.exists()) {
                         const d = ds.data();
                         setEventConfig(d);
@@ -130,25 +128,21 @@
                     }
                 });
                 
-                const unsubSounds = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), (s) => {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), (s) => {
                     setSounds(s.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
 
-                const unsubTeams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (s) => {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (s) => {
                     const teamsData = s.docs.map(d => ({ id: d.id, ...d.data() }));
-                    // チームリスト自体はエントリー順でソート
                     teamsData.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
                     setTeams(teamsData);
                 });
                 
-                const unsubVotes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), (s) => {
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), (s) => {
                     setVotes(s.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
-
-                return () => { unsubConfig(); unsubSounds(); unsubTeams(); unsubVotes(); };
             }, [user]);
 
-            // チームのエントリー順（タイムスタンプ）をマップ化
             const teamTimestampMap = useMemo(() => {
                 const map = {};
                 teams.forEach(t => {
@@ -157,14 +151,11 @@
                 return map;
             }, [teams]);
 
-            // サウンドリストを「所属チームのエントリー順」でソート
             const sortedSoundsByTeamEntry = useMemo(() => {
                 return [...sounds].sort((a, b) => {
                     const timeA = teamTimestampMap[a.teamName] || Infinity;
                     const timeB = teamTimestampMap[b.teamName] || Infinity;
-                    
                     if (timeA !== timeB) return timeA - timeB;
-                    // 同じチーム内ならサウンドのエントリー順
                     return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
                 });
             }, [sounds, teamTimestampMap]);
@@ -186,13 +177,12 @@
                     return;
                 }
 
-                // --- 重複投票チェック ---
+                // 送信時の最終チェック
                 const existingVote = votes.find(v => v.teamName === teamName);
                 if (existingVote) {
-                    notify(`すでに${existingVote.voterName}さんが投票済です`);
+                    setDuplicateVoteInfo(existingVote);
                     return;
                 }
-                // -----------------------
 
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), {
                     voterName: voterName.trim(), 
@@ -221,7 +211,6 @@
                 return a.lastVoteTime - b.lastVoteTime;
             });
 
-            // 連番順位（Dense Ranking）
             let currentRank = 0;
             let lastCount = -1;
             const rankedSounds = sortedSoundsForRanking.map((s) => {
@@ -232,7 +221,6 @@
                 return { ...s, displayRank: currentRank };
             });
 
-            // 自分のチームのサウンドを除外 + チームのエントリー順でソート
             const filteredSounds = sortedSoundsByTeamEntry.filter(s => s.teamName !== teamName);
 
             const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
@@ -254,12 +242,41 @@
 
             return (
                 <div className="min-h-screen pb-40 text-slate-800 transition-all duration-500">
+                    {/* トースト通知 */}
                     {showToast && (
                         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl text-xs font-bold animate-bounce text-center min-w-[280px]">
                             {showToast}
                         </div>
                     )}
 
+                    {/* 重複投票警告モーダル */}
+                    {duplicateVoteInfo && (
+                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
+                            <div className="bg-white w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-200">
+                                <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                    <Icon name="AlertTriangle" className="w-10 h-10" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-black text-slate-800">すでに投票済です</h3>
+                                    <p className="text-sm text-slate-500 leading-relaxed">
+                                        チーム「<span className="font-black text-rose-500">{duplicateVoteInfo.teamName}</span>」からは、すでに <span className="font-black text-slate-800">{duplicateVoteInfo.voterName}さん</span> が投票を完了しています。
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 font-bold italic pt-2">※1チームにつき投票は1回までです</p>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        setDuplicateVoteInfo(null);
+                                        setTeamName(''); // 選択をリセット
+                                    }}
+                                    className="w-full py-4 rounded-2xl font-black text-sm text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all shadow-lg shadow-slate-200"
+                                >
+                                    わかりました
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 管理ログインモーダル */}
                     {isLoginPromptOpen && (
                         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
                             <form 
@@ -273,7 +290,6 @@
                                     <h3 className="text-lg font-black text-slate-800">管理者ログイン</h3>
                                     <p className="text-xs text-slate-400 font-medium tracking-tight">パスワードを入力してください</p>
                                 </div>
-
                                 <input 
                                     autoFocus
                                     type="password" 
@@ -282,21 +298,9 @@
                                     className="w-full p-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-indigo-400 outline-none text-center font-black tracking-widest transition-all"
                                     placeholder="••••••••"
                                 />
-
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button 
-                                        type="button"
-                                        onClick={() => { setIsLoginPromptOpen(false); setAdminPass(''); }}
-                                        className="py-4 rounded-2xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors active:scale-95"
-                                    >
-                                        キャンセル
-                                    </button>
-                                    <button 
-                                        type="submit"
-                                        className="py-4 rounded-2xl font-black text-xs text-white bg-indigo-600 shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"
-                                    >
-                                        ログイン
-                                    </button>
+                                    <button type="button" onClick={() => { setIsLoginPromptOpen(false); setAdminPass(''); }} className="py-4 rounded-2xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors active:scale-95">キャンセル</button>
+                                    <button type="submit" className="py-4 rounded-2xl font-black text-xs text-white bg-indigo-600 shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all">ログイン</button>
                                 </div>
                             </form>
                         </div>
@@ -334,8 +338,20 @@
                                             <select 
                                                 value={teamName} 
                                                 onChange={e => {
-                                                    setTeamName(e.target.value);
-                                                    setSelectedIds([]); 
+                                                    const selectedTeam = e.target.value;
+                                                    if (!selectedTeam) {
+                                                        setTeamName('');
+                                                        return;
+                                                    }
+                                                    // 選択した瞬間に重複をチェック
+                                                    const existing = votes.find(v => v.teamName === selectedTeam);
+                                                    if (existing) {
+                                                        setDuplicateVoteInfo(existing);
+                                                        setTeamName(''); // 選択を無効化
+                                                    } else {
+                                                        setTeamName(selectedTeam);
+                                                        setSelectedIds([]); 
+                                                    }
                                                 }} 
                                                 className={`w-full p-4 rounded-2xl bg-slate-50 border-2 outline-none text-sm font-bold appearance-none cursor-pointer transition-all ${!teamName ? 'border-transparent focus:border-indigo-300' : 'border-emerald-100 focus:border-emerald-300'}`}
                                             >
@@ -362,7 +378,7 @@
                                                 onClick={() => setSelectedIds(p => p.includes(s.id) ? p.filter(i => i !== s.id) : (p.length < 3 ? [...p, s.id] : p))} 
                                                 className={`w-full p-5 rounded-3xl border-2 flex justify-between items-center transition-all duration-300 ${selectedIds.includes(s.id) ? 'border-indigo-500 bg-indigo-50 shadow-lg scale-[1.02]' : 'border-transparent bg-white shadow-sm hover:border-slate-200'}`}
                                             >
-                                                <div className="flex flex-col items-start">
+                                                <div className="flex flex-col items-start text-left">
                                                     <span className={`text-sm font-black ${selectedIds.includes(s.id) ? 'text-indigo-700' : 'text-slate-700'}`}>{s.name}</span>
                                                     <span className="text-[9px] text-slate-400 font-bold">{s.teamName}</span>
                                                 </div>
@@ -405,7 +421,7 @@
                                     <div className="space-y-4">
                                         <div className="space-y-1">
                                             <span className="text-[10px] font-bold text-slate-400 ml-1">タイトル</span>
-                                            <input type="text" value={editTitle} onChange={editTitle => setEditTitle(editTitle.target.value)} className="w-full p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold" placeholder="タイトル" />
+                                            <input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold" placeholder="タイトル" />
                                         </div>
                                         <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-indigo-50 transition-colors group">
                                             <Icon name="Upload" className="w-6 h-6 text-slate-300 group-hover:text-indigo-400 transition-colors mb-2" />
@@ -494,7 +510,6 @@
                                         {rankedSounds.length > 0 ? rankedSounds.map((s, index) => {
                                             const isTop = s.displayRank <= 3;
                                             const rankColors = ["bg-yellow-400", "bg-slate-400", "bg-amber-600"];
-
                                             return (
                                                 <div key={s.id} className="space-y-2 animate-in slide-in-from-left duration-300">
                                                     <div className="flex justify-between items-end text-xs font-black">
@@ -503,10 +518,7 @@
                                                                 {s.displayRank}
                                                             </div>
                                                             <div className="flex items-center gap-2">
-                                                                <button 
-                                                                    onClick={() => confirm(`${s.name} を削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} 
-                                                                    className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-all active:scale-90 shadow-sm border border-rose-100 shrink-0"
-                                                                >
+                                                                <button onClick={() => confirm(`${s.name} を削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-all active:scale-90 shadow-sm border border-rose-100 shrink-0">
                                                                     <Icon name="Trash2" className="w-4 h-4" />
                                                                 </button>
                                                                 <div className="flex flex-col">
@@ -520,15 +532,7 @@
                                                         </div>
                                                     </div>
                                                     <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner border border-slate-50">
-                                                        <div 
-                                                            className={`h-full transition-all duration-1000 ease-out shadow-sm ${
-                                                                s.displayRank === 1 ? "bg-gradient-to-r from-yellow-400 to-amber-300" :
-                                                                s.displayRank === 2 ? "bg-gradient-to-r from-slate-400 to-slate-300" :
-                                                                s.displayRank === 3 ? "bg-gradient-to-r from-amber-600 to-amber-500" :
-                                                                "bg-indigo-400 opacity-60"
-                                                            }`} 
-                                                            style={{ width: `${votes.length > 0 ? (s.count / (votes.length * 3) * 100 * 3) : 0}%` }} 
-                                                        />
+                                                        <div className={`h-full transition-all duration-1000 ease-out shadow-sm ${s.displayRank === 1 ? "bg-gradient-to-r from-yellow-400 to-amber-300" : s.displayRank === 2 ? "bg-gradient-to-r from-slate-400 to-slate-300" : s.displayRank === 3 ? "bg-gradient-to-r from-amber-600 to-amber-500" : "bg-indigo-400 opacity-60"}`} style={{ width: `${votes.length > 0 ? (s.count / (votes.length * 3) * 100 * 3) : 0}%` }} />
                                                     </div>
                                                 </div>
                                             );
@@ -539,35 +543,19 @@
                         )}
                     </main>
 
-                    {/* Footer Navigation */}
                     <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-xl border-t border-slate-100 flex justify-center gap-3 z-50 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
                         {isAdmin ? (
-                            <button 
-                                onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} 
-                                className="bg-indigo-600 text-white px-12 py-4 rounded-full font-black text-sm shadow-2xl shadow-indigo-200 active:scale-95 transition-all flex items-center gap-2"
-                            >
+                            <button onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} className="bg-indigo-600 text-white px-12 py-4 rounded-full font-black text-sm shadow-2xl shadow-indigo-200 active:scale-95 transition-all flex items-center gap-2">
                                 <Icon name={view === 'admin' ? "Layout" : "Settings"} className="w-4 h-4" />
                                 {view === 'admin' ? '投票画面（プレビュー）' : '管理メニューに戻る'}
                             </button>
                         ) : (
-                            <button 
-                                onClick={() => setIsLoginPromptOpen(true)}
-                                className="bg-slate-900 text-white px-12 py-4 rounded-full font-black text-sm shadow-xl active:scale-95 transition-all flex items-center gap-2"
-                            >
+                            <button onClick={() => setIsLoginPromptOpen(true)} className="bg-slate-900 text-white px-12 py-4 rounded-full font-black text-sm shadow-xl active:scale-95 transition-all flex items-center gap-2">
                                 <Icon name="ShieldCheck" className="w-4 h-4" />
                                 管理者ログイン
                             </button>
                         )}
                     </footer>
-
-                    <style>{`
-                        @keyframes shake {
-                            0%, 100% { transform: translateX(0); }
-                            25% { transform: translateX(-5px); }
-                            75% { transform: translateX(5px); }
-                        }
-                        .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
-                    `}</style>
                 </div>
             );
         }
