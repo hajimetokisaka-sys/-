@@ -378,7 +378,7 @@
                                         {teams.map(t => (
                                             <div key={t.id} className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-2xl text-[10px] font-bold border border-emerald-100 shadow-sm transition-all hover:bg-emerald-100">
                                                 {t.name}
-                                                <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', t.id))} className="hover:text-rose-500 p-1">
+                                                <button onClick={() => confirm("削除しますか？") && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', t.id))} className="hover:text-rose-500 p-1">
                                                     <Icon name="X" className="w-3 h-3" />
                                                 </button>
                                             </div>
@@ -416,8 +416,13 @@
                                                                 {s.displayRank}
                                                             </div>
                                                             <div className="flex items-center gap-2">
-                                                                <button onClick={() => confirm("削除しますか？") && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="text-slate-300 hover:text-rose-500 transition-colors">
-                                                                    <Icon name="Trash2" className="w-3.5 h-3.5" />
+                                                                {/* 削除ボタンの視覚性と操作性を向上 */}
+                                                                <button 
+                                                                    onClick={() => confirm(`${s.name} を削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} 
+                                                                    className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-all active:scale-90 shadow-sm border border-rose-100"
+                                                                    title="サウンドを削除"
+                                                                >
+                                                                    <Icon name="Trash2" className="w-4 h-4" />
                                                                 </button>
                                                                 <span className={`${isTop ? "text-slate-800 text-sm" : "text-slate-600"}`}>{s.name}</span>
                                                             </div>
