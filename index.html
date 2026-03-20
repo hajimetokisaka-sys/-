@@ -225,6 +225,14 @@
                 } catch (err) { notify("更新に失敗しました"); }
             };
 
+            const deleteVote = async (id) => {
+                if (!user) return;
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'votes', id));
+                    notify("投票データを削除しました");
+                } catch (err) { notify("削除に失敗しました"); }
+            };
+
             const voteCounts = (() => {
                 const c = {}; sounds.forEach(s => c[s.id] = 0);
                 votes.forEach(v => v.selectedIds.forEach(id => { if (c[id] !== undefined) c[id]++; }));
@@ -404,6 +412,7 @@
                                 <button onClick={() => { setView('vote'); setSelectedIds([]); setVoterName(''); setTeamName(''); }} className="mt-12 text-indigo-600 font-black text-base hover:underline p-4">← 投票画面へ戻る</button>
                             </div>
                         ) : (
+                            /* 管理画面 */
                             <div className="space-y-8 animate-in slide-in-from-bottom duration-500 pb-20">
                                 <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-indigo-50">
                                     <h3 className="text-xs font-black text-indigo-500 border-b pb-3 tracking-widest flex items-center gap-2 font-black uppercase"><Icon name="Settings" className="w-4 h-4" /> イベント基本設定</h3>
@@ -454,6 +463,39 @@
                                     </div>
                                 </div>
 
+                                {/* 投票履歴管理（救済措置用） */}
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-6 border border-amber-50">
+                                    <h3 className="text-xs font-black text-amber-600 border-b pb-3 tracking-widest flex items-center gap-2 font-black uppercase">
+                                        <Icon name="History" className="w-4 h-4" /> 投票履歴管理
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {votes.length > 0 ? [...votes].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).map(v => (
+                                            <div key={v.id} className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100 flex justify-between items-center animate-in fade-in duration-300">
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-black text-slate-800">{v.voterName}</span>
+                                                        <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-amber-200 text-amber-600 font-black">{v.teamName}</span>
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 font-bold">
+                                                        投票先: {v.selectedIds.map(id => sounds.find(s => s.id === id)?.name || "不明").join(", ")}
+                                                    </div>
+                                                    <div className="text-[8px] text-slate-400 font-medium tracking-tighter">
+                                                        {new Date(v.timestamp).toLocaleString('ja-JP')}
+                                                    </div>
+                                                </div>
+                                                <button 
+                                                    onClick={() => confirm(`${v.voterName}さんの投票データを削除しますか？\n(削除するとこのチームは再度投票可能になります)`) && deleteVote(v.id)} 
+                                                    className="bg-rose-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-rose-600 active:scale-90 transition-all shrink-0 ml-4"
+                                                >
+                                                    <Icon name="Trash2" className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        )) : (
+                                            <p className="text-center text-slate-300 text-base py-6 font-bold italic tracking-widest uppercase">投票データはありません</p>
+                                        )}
+                                    </div>
+                                </div>
+
                                 <div className="bg-white p-6 rounded-3xl shadow-sm space-y-6 border border-slate-100">
                                     <div className="flex justify-between items-center border-b pb-3">
                                         <h3 className="text-xs font-black text-slate-500 border-b-transparent tracking-widest flex items-center gap-2 font-black uppercase"><Icon name="Award" className="w-4 h-4" /> 集計結果 ({votes.length}票)</h3>
@@ -466,7 +508,7 @@
                                                     <div className="flex items-center gap-3 flex-1">
                                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] shadow-sm text-white font-black shrink-0 ${s.displayRank <= 3 ? (s.displayRank === 1 ? "bg-yellow-400" : s.displayRank === 2 ? "bg-slate-400" : "bg-amber-600") : "bg-slate-100 text-slate-500"}`}>{s.displayRank}</div>
                                                         <div className="flex items-center gap-3 flex-1">
-                                                            <button onClick={() => confirm(`削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500 text-white hover:bg-rose-600 active:scale-90 shadow-md shrink-0"><Icon name="CircleX" className="w-5 h-5" /></button>
+                                                            <button onClick={() => confirm(`${s.name} を削除しますか？`) && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500 text-white hover:bg-rose-600 active:scale-90 shadow-md shrink-0"><Icon name="CircleX" className="w-5 h-5" /></button>
                                                             <div className="flex flex-col flex-1">
                                                                 {editingSound?.id === s.id ? (
                                                                     <input autoFocus type="text" value={editingSound.name} onChange={e => setEditingSound({ ...editingSound, name: e.target.value })} onBlur={() => handleUpdateSoundName(s.id, s.name, editingSound.name)} onKeyDown={e => e.key === 'Enter' && handleUpdateSoundName(s.id, s.name, editingSound.name)} className="bg-white border border-indigo-300 rounded px-2 py-1 outline-none text-indigo-800 text-base w-full" />
