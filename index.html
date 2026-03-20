@@ -50,12 +50,11 @@
         const db = getFirestore(app);
         const appId = "nana-event-manager";
 
-        // --- Lucide Icon Helper (Fixed for CDN usage) ---
+        // --- Lucide Icon Helper ---
         const Icon = ({ name, className }) => {
             const iconRef = useRef(null);
             useEffect(() => {
                 if (window.lucide && iconRef.current) {
-                    // lucide.createIcons を使用して描画
                     window.lucide.createIcons({
                         icons: { [name]: window.lucide.icons[name] },
                         nameAttr: 'data-lucide'
@@ -85,12 +84,10 @@
             const [eventConfig, setEventConfig] = useState({ title: 'nana Event Voting', imageUrl: '' });
             const [view, setView] = useState('vote');
             
-            // フォーム状態
             const [voterName, setVoterName] = useState('');
             const [teamName, setTeamName] = useState(''); 
             const [selectedIds, setSelectedIds] = useState([]);
             
-            // 管理画面用状態
             const [newSoundName, setNewSoundName] = useState('');
             const [newTeamName, setNewTeamName] = useState(''); 
             const [adminPass, setAdminPass] = useState('');
@@ -99,7 +96,6 @@
             const [showToast, setShowToast] = useState(null);
             const [loginError, setLoginError] = useState(false);
 
-            // 1. 認証
             useEffect(() => {
                 const initAuth = async () => {
                     try {
@@ -121,7 +117,6 @@
                 return () => unsubscribe();
             }, []);
 
-            // 2. Firestore監視
             useEffect(() => {
                 if (!user) return;
                 
@@ -180,7 +175,28 @@
                 return c;
             })();
 
-            const sortedSounds = [...sounds].sort((a, b) => (voteCounts[b.id] || 0) - (voteCounts[a.id] || 0));
+            const sortedSounds = [...sounds].map(s => {
+                const count = voteCounts[s.id] || 0;
+                const relevantVotes = votes.filter(v => v.selectedIds.includes(s.id));
+                const lastVoteTime = relevantVotes.length > 0 
+                    ? Math.max(...relevantVotes.map(v => new Date(v.timestamp).getTime())) 
+                    : Infinity;
+                return { ...s, count, lastVoteTime };
+            }).sort((a, b) => {
+                if (b.count !== a.count) return b.count - a.count;
+                return a.lastVoteTime - b.lastVoteTime;
+            });
+
+            // 連番順位（Dense Ranking）の計算ロジック
+            let currentRank = 0;
+            let lastCount = -1;
+            const rankedSounds = sortedSounds.map((s) => {
+                if (s.count !== lastCount) {
+                    currentRank++;
+                    lastCount = s.count;
+                }
+                return { ...s, displayRank: currentRank };
+            });
 
             const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
 
@@ -207,12 +223,11 @@
                         </div>
                     )}
 
-                    {/* Login Modal Overlay */}
                     {isLoginPromptOpen && (
                         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
                             <form 
                                 onSubmit={handleAdminLogin}
-                                className={`bg-white w-full max-w-sm p-8 rounded-[2.5rem] shadow-2xl space-y-6 transition-transform ${loginError ? 'animate-shake' : 'animate-in zoom-in-95 duration-200'}`}
+                                className={`bg-white w-full max-sm p-8 rounded-[2.5rem] shadow-2xl space-y-6 transition-transform ${loginError ? 'animate-shake' : 'animate-in zoom-in-95 duration-200'}`}
                             >
                                 <div className="text-center space-y-2">
                                     <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
@@ -315,16 +330,6 @@
                                     </div>
                                 </div>
 
-                                {isSubmitDisabled && (
-                                    <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 animate-pulse">
-                                        <p className="text-[10px] text-rose-500 font-black text-center uppercase tracking-widest">
-                                            {!voterName.trim() ? "名前を入力してください" : 
-                                             !teamName ? "チームを選択してください" : 
-                                             "サウンドを3つ選択してください"}
-                                        </p>
-                                    </div>
-                                )}
-
                                 <button 
                                     disabled={isSubmitDisabled} 
                                     onClick={submitVote} 
@@ -399,18 +404,16 @@
                                         <button onClick={() => confirm("全ての投票を削除しますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="text-[10px] text-rose-500 font-bold border border-rose-100 px-3 py-2 rounded-xl bg-rose-50 transition-colors active:bg-rose-100 font-black">全リセット</button>
                                     </div>
                                     <div className="space-y-6">
-                                        {sortedSounds.length > 0 ? sortedSounds.map((s, index) => {
-                                            const rank = index + 1;
-                                            const count = voteCounts[s.id] || 0;
-                                            const isTop = rank <= 3;
+                                        {rankedSounds.length > 0 ? rankedSounds.map((s, index) => {
+                                            const isTop = s.displayRank <= 3;
                                             const rankColors = ["bg-yellow-400", "bg-slate-400", "bg-amber-600"];
 
                                             return (
                                                 <div key={s.id} className="space-y-2 animate-in slide-in-from-left duration-300">
                                                     <div className="flex justify-between items-end text-xs font-black">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] shadow-sm text-white font-black ${isTop ? rankColors[index] : "bg-slate-100 text-slate-500"}`}>
-                                                                {rank}
+                                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] shadow-sm text-white font-black ${s.displayRank <= 3 ? rankColors[s.displayRank-1] : "bg-slate-100 text-slate-500"}`}>
+                                                                {s.displayRank}
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <button onClick={() => confirm("削除しますか？") && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="text-slate-300 hover:text-rose-500 transition-colors">
@@ -419,17 +422,17 @@
                                                                 <span className={`${isTop ? "text-slate-800 text-sm" : "text-slate-600"}`}>{s.name}</span>
                                                             </div>
                                                         </div>
-                                                        <span className={`font-black ${isTop ? "text-indigo-600 text-sm" : "text-indigo-400"}`}>{count} <span className="text-[8px] opacity-60">票</span></span>
+                                                        <span className={`font-black ${isTop ? "text-indigo-600 text-sm" : "text-indigo-400"}`}>{s.count} <span className="text-[8px] opacity-60">票</span></span>
                                                     </div>
                                                     <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner border border-slate-50">
                                                         <div 
                                                             className={`h-full transition-all duration-1000 ease-out shadow-sm ${
-                                                                rank === 1 ? "bg-gradient-to-r from-yellow-400 to-amber-300" :
-                                                                rank === 2 ? "bg-gradient-to-r from-slate-400 to-slate-300" :
-                                                                rank === 3 ? "bg-gradient-to-r from-amber-600 to-amber-500" :
+                                                                s.displayRank === 1 ? "bg-gradient-to-r from-yellow-400 to-amber-300" :
+                                                                s.displayRank === 2 ? "bg-gradient-to-r from-slate-400 to-slate-300" :
+                                                                s.displayRank === 3 ? "bg-gradient-to-r from-amber-600 to-amber-500" :
                                                                 "bg-indigo-400 opacity-60"
                                                             }`} 
-                                                            style={{ width: `${votes.length > 0 ? (count / (votes.length * 3) * 100 * 3) : 0}%` }} 
+                                                            style={{ width: `${votes.length > 0 ? (s.count / (votes.length * 3) * 100 * 3) : 0}%` }} 
                                                         />
                                                     </div>
                                                 </div>
