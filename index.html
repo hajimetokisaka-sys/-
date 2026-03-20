@@ -135,7 +135,10 @@
                 });
 
                 const unsubTeams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (s) => {
-                    setTeams(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                    const teamsData = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                    // タイムスタンプ順（エントリー順）に並び替え
+                    teamsData.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+                    setTeams(teamsData);
                 });
                 
                 const unsubVotes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), (s) => {
@@ -389,7 +392,14 @@
                                     </h3>
                                     <div className="flex gap-2">
                                         <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} className="flex-1 p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold placeholder-slate-300" placeholder="新しいチーム名" />
-                                        <button onClick={() => { if(newTeamName){ addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), { name: newTeamName }).then(() => setNewTeamName('')); } }} className="bg-emerald-600 text-white px-6 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition-transform">追加</button>
+                                        <button onClick={() => { 
+                                            if(newTeamName){ 
+                                                addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), { 
+                                                    name: newTeamName,
+                                                    timestamp: new Date().toISOString() // 登録時間を保存
+                                                }).then(() => setNewTeamName('')); 
+                                            } 
+                                        }} className="bg-emerald-600 text-white px-6 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition-transform">追加</button>
                                     </div>
                                     <div className="flex flex-wrap gap-2 pt-2">
                                         {teams.map(t => (
