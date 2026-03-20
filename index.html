@@ -17,11 +17,9 @@
 <body class="bg-slate-50">
     <div id="root"></div>
 
-    <!-- data-type="module" を追加して ESM import を有効化 -->
     <script type="text/babel" data-type="module">
-        // ESM import は常に先頭に配置
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const { useState, useEffect } = React;
@@ -41,41 +39,54 @@
         const db = getFirestore(app);
         const appId = "nana-event-manager";
 
-        // --- Lucide Icon Helper ---
-        const Icon = ({ name, className }) => {
-            const [iconHtml, setIconHtml] = useState("");
-            useEffect(() => {
-                if (window.lucide) {
-                    const icon = window.lucide.icons[name];
-                    if (icon) setIconHtml(icon.toSvg());
-                }
-            }, [name]);
-            return <span className={className} dangerouslySetInnerHTML={{ __html: iconHtml }} />;
-        };
-
         function App() {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [sounds, setSounds] = useState([]);
+            const [teams, setTeams] = useState([]); 
             const [votes, setVotes] = useState([]);
             const [eventConfig, setEventConfig] = useState({ title: 'nana Event Voting', imageUrl: '' });
             const [view, setView] = useState('vote');
+            
+            // フォーム状態
             const [voterName, setVoterName] = useState('');
-            const [teamName, setTeamName] = useState('');
+            const [teamName, setTeamName] = useState(''); 
             const [selectedIds, setSelectedIds] = useState([]);
+            
+            // 管理画面用状態
             const [newSoundName, setNewSoundName] = useState('');
+            const [newTeamName, setNewTeamName] = useState(''); 
             const [adminPass, setAdminPass] = useState('');
             const [editTitle, setEditTitle] = useState('');
             const [editImageUrl, setEditImageUrl] = useState('');
             const [showToast, setShowToast] = useState(null);
 
+            // 1. 認証
             useEffect(() => {
-                signInAnonymously(auth).catch(console.error);
-                return onAuthStateChanged(auth, setUser);
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            try {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } catch (e) {
+                                await signInAnonymously(auth);
+                            }
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth error", err);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
             }, []);
 
+            // 2. Firestore監視
             useEffect(() => {
                 if (!user) return;
+                
                 const unsubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), (ds) => {
                     if (ds.exists()) {
                         const d = ds.data();
@@ -84,13 +95,20 @@
                         setEditImageUrl(d.imageUrl || '');
                     }
                 });
+                
                 const unsubSounds = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), (s) => {
                     setSounds(s.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
+
+                const unsubTeams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), (s) => {
+                    setTeams(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+                
                 const unsubVotes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), (s) => {
                     setVotes(s.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
-                return () => { unsubConfig(); unsubSounds(); unsubVotes(); };
+
+                return () => { unsubConfig(); unsubSounds(); unsubTeams(); unsubVotes(); };
             }, [user]);
 
             const notify = (msg) => { setShowToast(msg); setTimeout(() => setShowToast(null), 3000); };
@@ -105,9 +123,16 @@
             };
 
             const submitVote = async () => {
-                if (!user || selectedIds.length !== 3) return;
+                // 送信ボタンが無効化されているが、念のためのバックエンドガード
+                if (!user || selectedIds.length !== 3 || !voterName.trim() || !teamName) {
+                    notify("入力内容に不足があります");
+                    return;
+                }
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), {
-                    voterName, teamName, selectedIds, timestamp: new Date().toISOString()
+                    voterName: voterName.trim(), 
+                    teamName, 
+                    selectedIds, 
+                    timestamp: new Date().toISOString()
                 });
                 setView('thanks');
             };
@@ -118,79 +143,185 @@
                 return c;
             })();
 
+            // 送信可能かどうかの判定ロジック
+            const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
+
             return (
-                <div className="min-h-screen pb-32">
-                    {showToast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl text-xs font-bold">{showToast}</div>}
+                <div className="min-h-screen pb-40 text-slate-800">
+                    {showToast && (
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl text-xs font-bold animate-bounce">
+                            {showToast}
+                        </div>
+                    )}
                     
-                    <div className="bg-gradient-to-r from-indigo-600 to-purple-500 p-6 text-white rounded-b-3xl shadow-lg mb-6 text-center">
-                        <h1 className="text-xl font-bold">{eventConfig.title || 'nana Event'}</h1>
+                    <div className="bg-gradient-to-r from-indigo-600 to-purple-500 p-8 text-white rounded-b-[2.5rem] shadow-xl mb-6 text-center border-b-4 border-white/20">
+                        <h1 className="text-2xl font-black tracking-tight">{eventConfig.title || 'nana Event Voting'}</h1>
+                        <p className="text-xs mt-2 opacity-80 font-medium">所属チームを選択して、お気に入りの3音源に投票！</p>
                     </div>
 
-                    <main className="max-w-md mx-auto px-4 space-y-6">
+                    <main className="max-w-md mx-auto px-5 space-y-8">
                         {view === 'vote' ? (
                             <>
-                                {eventConfig.imageUrl && <img src={eventConfig.imageUrl} className="w-full aspect-video rounded-2xl object-cover shadow-lg" />}
-                                <div className="bg-white p-6 rounded-2xl shadow-sm space-y-4">
-                                    <input type="text" placeholder="nana名" value={voterName} onChange={e => setVoterName(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 outline-none text-sm" />
-                                    <input type="text" placeholder="チーム名" value={teamName} onChange={e => setTeamName(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 outline-none text-sm" />
+                                {eventConfig.imageUrl && (
+                                    <div className="rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white">
+                                        <img src={eventConfig.imageUrl} className="w-full aspect-video object-cover" />
+                                    </div>
+                                )}
+
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-slate-100">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest flex justify-between">
+                                            <span>お名前（nana名）</span>
+                                            {!voterName.trim() && <span className="text-rose-400 normal-case">必須</span>}
+                                        </label>
+                                        <input type="text" placeholder="名前を入力" value={voterName} onChange={e => setVoterName(e.target.value)} className={`w-full p-4 rounded-2xl bg-slate-50 border-2 outline-none text-sm font-bold placeholder-slate-300 transition-all ${!voterName.trim() ? 'border-transparent focus:border-indigo-300' : 'border-emerald-100 focus:border-emerald-300'}`} />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest flex justify-between">
+                                            <span>所属チーム</span>
+                                            {!teamName && <span className="text-rose-400 normal-case">選択必須</span>}
+                                        </label>
+                                        <div className="relative">
+                                            <select 
+                                                value={teamName} 
+                                                onChange={e => setTeamName(e.target.value)} 
+                                                className={`w-full p-4 rounded-2xl bg-slate-50 border-2 outline-none text-sm font-bold appearance-none cursor-pointer transition-all ${!teamName ? 'border-transparent focus:border-indigo-300' : 'border-emerald-100 focus:border-emerald-300'}`}
+                                            >
+                                                <option value="">チームを選択してください</option>
+                                                {teams.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                            </select>
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-[10px]">▼</div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="space-y-3">
-                                    <p className="text-xs font-bold text-slate-500 uppercase px-1">選択中: {selectedIds.length}/3</p>
-                                    {sounds.map(s => (
-                                        <button key={s.id} onClick={() => setSelectedIds(p => p.includes(s.id) ? p.filter(i => i !== s.id) : (p.length < 3 ? [...p, s.id] : p))} className={`w-full p-4 rounded-2xl border-2 flex justify-between items-center transition-all ${selectedIds.includes(s.id) ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-transparent bg-white shadow-sm'}`}>
-                                            <span className="text-sm font-bold">{s.name}</span>
-                                            <div className={`w-5 h-5 rounded-full border-2 ${selectedIds.includes(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`} />
-                                        </button>
-                                    ))}
+
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center px-1">
+                                        <h3 className="text-sm font-black text-slate-600 uppercase tracking-wider">エントリーサウンド</h3>
+                                        <span className={`text-[10px] font-black px-3 py-1 rounded-full transition-colors ${selectedIds.length === 3 ? 'bg-green-100 text-green-600' : 'bg-rose-50 text-rose-400'}`}>
+                                            {selectedIds.length === 3 ? '選択完了' : `あと ${3 - selectedIds.length} 個選択`}
+                                        </span>
+                                    </div>
+                                    <div className="grid gap-3">
+                                        {sounds.map(s => (
+                                            <button 
+                                                key={s.id} 
+                                                onClick={() => setSelectedIds(p => p.includes(s.id) ? p.filter(i => i !== s.id) : (p.length < 3 ? [...p, s.id] : p))} 
+                                                className={`w-full p-5 rounded-3xl border-2 flex justify-between items-center transition-all duration-300 ${selectedIds.includes(s.id) ? 'border-indigo-500 bg-indigo-50 shadow-lg scale-[1.02]' : 'border-transparent bg-white shadow-sm hover:border-slate-200'}`}
+                                            >
+                                                <span className={`text-sm font-bold ${selectedIds.includes(s.id) ? 'text-indigo-700' : 'text-slate-700'}`}>{s.name}</span>
+                                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${selectedIds.includes(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>
+                                                    {selectedIds.includes(s.id) && <div className="w-2 h-2 bg-white rounded-full" />}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                                <button disabled={!voterName || selectedIds.length !== 3} onClick={submitVote} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl disabled:bg-slate-200">送信する</button>
+
+                                {/* ガイドメッセージ */}
+                                {isSubmitDisabled && (
+                                    <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 animate-pulse">
+                                        <p className="text-[10px] text-rose-500 font-black text-center uppercase tracking-widest">
+                                            {!voterName.trim() ? "名前を入力してください" : 
+                                             !teamName ? "チームを選択してください" : 
+                                             "サウンドを3つ選択してください"}
+                                        </p>
+                                    </div>
+                                )}
+
+                                <button 
+                                    disabled={isSubmitDisabled} 
+                                    onClick={submitVote} 
+                                    className={`w-full py-5 rounded-3xl font-black text-lg shadow-2xl transition-all active:scale-95 ${isSubmitDisabled ? 'bg-slate-200 text-slate-400 cursor-not-allowed grayscale' : 'bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700'}`}
+                                >
+                                    投票を送信する
+                                </button>
                             </>
                         ) : view === 'thanks' ? (
-                            <div className="text-center py-20">
-                                <h2 className="text-2xl font-bold">投票完了！</h2>
-                                <button onClick={() => setView('vote')} className="mt-8 text-indigo-600 font-bold underline">戻る</button>
+                            <div className="text-center py-24 animate-in fade-in zoom-in duration-500">
+                                <div className="text-6xl mb-6">🎉</div>
+                                <h2 className="text-2xl font-black text-slate-800">投票が完了しました！</h2>
+                                <p className="text-slate-400 text-sm mt-3 font-medium">あなたの熱い1票をお預かりしました。</p>
+                                <button onClick={() => { setView('vote'); setSelectedIds([]); setVoterName(''); setTeamName(''); }} className="mt-12 text-indigo-600 font-black text-sm hover:underline p-4">← 投票画面へ戻る</button>
                             </div>
                         ) : (
-                            <div className="space-y-6">
-                                <div className="bg-white p-4 rounded-xl shadow-sm space-y-3">
-                                    <input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full p-2 bg-slate-50 rounded" placeholder="イベントタイトル" />
-                                    <label className="block p-4 border-2 border-dashed border-slate-200 rounded-xl text-center cursor-pointer text-xs text-slate-400">
-                                        画像をアップロード
-                                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                                    </label>
-                                    <button onClick={() => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), { title: editTitle, imageUrl: editImageUrl }).then(() => notify("保存完了"))} className="w-full bg-indigo-600 text-white py-2 rounded font-bold">設定保存</button>
-                                </div>
-                                <div className="bg-white p-4 rounded-xl shadow-sm flex gap-2">
-                                    <input type="text" value={newSoundName} onChange={e => setNewSoundName(e.target.value)} className="flex-1 p-2 bg-slate-50 rounded" placeholder="追加サウンド名" />
-                                    <button onClick={() => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), { name: newSoundName }).then(() => setNewSoundName(''))} className="bg-emerald-600 text-white px-4 rounded font-bold">追加</button>
-                                </div>
-                                <div className="bg-white p-4 rounded-xl shadow-sm space-y-4">
-                                    {sounds.map(s => (
-                                        <div key={s.id} className="space-y-1">
-                                            <div className="flex justify-between text-xs font-bold">
-                                                <span>{s.name}</span>
-                                                <span className="text-indigo-600">{voteCounts[s.id] || 0} 票</span>
-                                            </div>
-                                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                                <div className="bg-indigo-500 h-full transition-all" style={{ width: `${votes.length ? (voteCounts[s.id] / (votes.length * 3) * 100 * 3) : 0}%` }} />
-                                            </div>
+                            /* 管理画面 */
+                            <div className="space-y-8 animate-in slide-in-from-bottom duration-500 pb-20">
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-indigo-50">
+                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest">イベント基本設定</h3>
+                                    <div className="space-y-4">
+                                        <div className="space-y-1">
+                                            <span className="text-[10px] font-bold text-slate-400 ml-1">タイトル</span>
+                                            <input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold" placeholder="タイトル" />
                                         </div>
-                                    ))}
-                                    <button onClick={() => confirm("リセットしますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="w-full py-2 border border-rose-200 text-rose-500 rounded text-xs font-bold">全リセット</button>
+                                        <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-indigo-50 transition-colors">
+                                            <span className="text-xs text-slate-400 font-bold">告知画像をアップロード (16:9)</span>
+                                            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                                        </label>
+                                        <button onClick={() => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), { title: editTitle, imageUrl: editImageUrl }).then(() => notify("保存しました"))} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-sm shadow-lg shadow-indigo-100">設定を保存</button>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-emerald-50">
+                                    <h3 className="text-xs font-black text-emerald-500 uppercase border-b pb-3 tracking-widest">チームリスト管理</h3>
+                                    <div className="flex gap-2">
+                                        <input type="text" value={newTeamName} onChange={e => setNewTeamName(e.target.value)} className="flex-1 p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold" placeholder="チーム名を追加" />
+                                        <button onClick={() => { if(newTeamName){ addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'teams'), { name: newTeamName }).then(() => setNewTeamName('')); } }} className="bg-emerald-600 text-white px-6 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition-transform">追加</button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 pt-2">
+                                        {teams.map(t => (
+                                            <div key={t.id} className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-2xl text-[10px] font-bold border border-emerald-100 shadow-sm">
+                                                {t.name}
+                                                <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teams', t.id))} className="hover:text-red-500 p-1">×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-indigo-50">
+                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest">サウンドエントリー</h3>
+                                    <div className="flex gap-2">
+                                        <input type="text" value={newSoundName} onChange={e => setNewSoundName(e.target.value)} className="flex-1 p-3 bg-slate-50 rounded-2xl outline-none text-sm font-bold" placeholder="サウンド名を追加" />
+                                        <button onClick={() => { if(newSoundName){ addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), { name: newSoundName }).then(() => setNewSoundName('')); } }} className="bg-indigo-600 text-white px-6 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition-transform">追加</button>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-3xl shadow-sm space-y-6 border border-slate-100">
+                                    <div className="flex justify-between items-center border-b pb-3">
+                                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">リアルタイム集計 ({votes.length}票)</h3>
+                                        <button onClick={() => confirm("全ての投票を削除しますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="text-[10px] text-rose-500 font-bold border border-rose-100 px-3 py-2 rounded-xl bg-rose-50 transition-colors active:bg-rose-100">全リセット</button>
+                                    </div>
+                                    <div className="space-y-5">
+                                        {sounds.length > 0 ? sounds.map(s => (
+                                            <div key={s.id} className="space-y-2">
+                                                <div className="flex justify-between text-[11px] font-black">
+                                                    <div className="flex items-center gap-2">
+                                                        <button onClick={() => confirm("このサウンドを削除しますか？") && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sounds', s.id))} className="text-slate-300 hover:text-rose-500 transition-colors p-1">×</button>
+                                                        <span className="text-slate-700">{s.name}</span>
+                                                    </div>
+                                                    <span className="text-indigo-600 font-black">{voteCounts[s.id] || 0} 票</span>
+                                                </div>
+                                                <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden shadow-inner border border-slate-50">
+                                                    <div className="bg-gradient-to-r from-indigo-500 to-purple-400 h-full transition-all duration-1000 ease-out" style={{ width: `${votes.length ? (voteCounts[s.id] / (votes.length * 3) * 100 * 3) : 0}%` }} />
+                                                </div>
+                                            </div>
+                                        )) : <p className="text-center text-slate-300 text-xs py-8 font-bold">サウンドが登録されていません</p>}
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </main>
 
-                    <footer className="fixed bottom-0 left-0 right-0 p-5 bg-white/80 backdrop-blur-md border-t flex justify-center gap-2">
+                    <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-xl border-t border-slate-100 flex justify-center gap-3 z-40 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
                         {!isAdmin ? (
-                            <div className="flex gap-2 w-full max-w-xs">
-                                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="flex-1 p-2 bg-slate-100 rounded outline-none text-xs" placeholder="PW: admin123" />
-                                <button onClick={() => adminPass === "admin123" ? setIsAdmin(true) : notify("PWミス")} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-xs">管理</button>
+                            <div className="flex gap-2 w-full max-w-xs animate-in slide-in-from-bottom duration-300">
+                                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="flex-1 p-4 bg-slate-100 rounded-2xl outline-none text-xs font-bold focus:ring-2 focus:ring-indigo-200 transition-all border-none" placeholder="Admin Pass" />
+                                <button onClick={() => adminPass === "admin123" ? setIsAdmin(true) : notify("パスワードが違います")} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-transform">管理画面</button>
                             </div>
                         ) : (
-                            <button onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} className="bg-indigo-600 text-white px-10 py-3 rounded-full font-bold shadow-xl">
-                                {view === 'admin' ? '投票画面' : '管理画面'}
+                            <button onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} className="bg-indigo-600 text-white px-12 py-4 rounded-full font-black text-sm shadow-2xl shadow-indigo-200 active:scale-95 transition-all">
+                                {view === 'admin' ? '投票画面（プレビュー）' : '管理メニューに戻る'}
                             </button>
                         )}
                     </footer>
@@ -203,4 +334,3 @@
     </script>
 </body>
 </html>
-
