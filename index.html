@@ -21,8 +21,8 @@
         }
         .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
         
-        /* カスタムスクロールバーの非表示（モバイル向け） */
         body::-webkit-scrollbar { display: none; }
+        .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -50,27 +50,23 @@
         const db = getFirestore(app);
         const appId = "nana-event-manager";
 
-        // --- Lucide Icon Helper (Fixed Error Version) ---
+        // --- Lucide Icon Helper (Fixed for CDN usage) ---
         const Icon = ({ name, className }) => {
             const iconRef = useRef(null);
             useEffect(() => {
                 if (window.lucide && iconRef.current) {
-                    iconRef.current.innerHTML = ''; 
-                    const iconElement = document.createElement('i');
-                    iconElement.setAttribute('data-lucide', name);
-                    iconRef.current.appendChild(iconElement);
+                    // lucide.createIcons を使用して描画
                     window.lucide.createIcons({
                         icons: { [name]: window.lucide.icons[name] },
                         nameAttr: 'data-lucide'
                     });
-                    
-                    const svg = iconRef.current.querySelector('svg');
-                    if (svg) {
-                        svg.setAttribute('class', `w-full h-full`);
-                    }
                 }
             }, [name]);
-            return <span ref={iconRef} className={`inline-flex items-center justify-center ${className}`} />;
+            return (
+                <span className={`inline-flex items-center justify-center ${className}`}>
+                    <i data-lucide={name} style={{ width: '100%', height: '100%' }}></i>
+                </span>
+            );
         };
 
         function App() {
@@ -189,7 +185,7 @@
             const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
 
             const handleAdminLogin = (e) => {
-                if(e) e.preventDefault(); 
+                if(e) e.preventDefault();
                 if (adminPass === ADMIN_PASSWORD) {
                     setIsAdmin(true);
                     setIsLoginPromptOpen(false);
@@ -348,7 +344,7 @@
                             /* 管理画面 */
                             <div className="space-y-8 animate-in slide-in-from-bottom duration-500 pb-20">
                                 <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-indigo-50">
-                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2 text-indigo-600">
                                         <Icon name="Settings" className="w-4 h-4" /> イベント基本設定
                                     </h3>
                                     <div className="space-y-4">
@@ -366,7 +362,7 @@
                                 </div>
 
                                 <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-emerald-50">
-                                    <h3 className="text-xs font-black text-emerald-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-emerald-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2 text-emerald-600">
                                         <Icon name="Users" className="w-4 h-4" /> チームリスト管理
                                     </h3>
                                     <div className="flex gap-2">
@@ -386,7 +382,7 @@
                                 </div>
 
                                 <div className="bg-white p-6 rounded-3xl shadow-sm space-y-5 border border-indigo-50">
-                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-indigo-500 uppercase border-b pb-3 tracking-widest flex items-center gap-2 text-indigo-600">
                                         <Icon name="Music" className="w-4 h-4" /> サウンドエントリー
                                     </h3>
                                     <div className="flex gap-2">
@@ -400,7 +396,7 @@
                                         <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                                             <Icon name="Award" className="w-4 h-4" /> ランキング集計 ({votes.length}票)
                                         </h3>
-                                        <button onClick={() => confirm("全ての投票を削除しますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="text-[10px] text-rose-500 font-bold border border-rose-100 px-3 py-2 rounded-xl bg-rose-50 transition-colors active:bg-rose-100">全リセット</button>
+                                        <button onClick={() => confirm("全ての投票を削除しますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="text-[10px] text-rose-500 font-bold border border-rose-100 px-3 py-2 rounded-xl bg-rose-50 transition-colors active:bg-rose-100 font-black">全リセット</button>
                                     </div>
                                     <div className="space-y-6">
                                         {sortedSounds.length > 0 ? sortedSounds.map((s, index) => {
@@ -413,7 +409,7 @@
                                                 <div key={s.id} className="space-y-2 animate-in slide-in-from-left duration-300">
                                                     <div className="flex justify-between items-end text-xs font-black">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] shadow-sm text-white ${isTop ? rankColors[index] : "bg-slate-100 text-slate-500"}`}>
+                                                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] shadow-sm text-white font-black ${isTop ? rankColors[index] : "bg-slate-100 text-slate-500"}`}>
                                                                 {rank}
                                                             </div>
                                                             <div className="flex items-center gap-2">
