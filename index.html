@@ -40,6 +40,12 @@
         const appId = "nana-event-manager";
 
         function App() {
+            // ==========================================
+            // 管理画面のパスワード設定
+            // ==========================================
+            const ADMIN_PASSWORD = "dyanbo2107"; // ←ここを好きな文字列に変更してください
+            // ==========================================
+
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [sounds, setSounds] = useState([]);
@@ -123,7 +129,6 @@
             };
 
             const submitVote = async () => {
-                // 送信ボタンが無効化されているが、念のためのバックエンドガード
                 if (!user || selectedIds.length !== 3 || !voterName.trim() || !teamName) {
                     notify("入力内容に不足があります");
                     return;
@@ -143,8 +148,16 @@
                 return c;
             })();
 
-            // 送信可能かどうかの判定ロジック
             const isSubmitDisabled = !voterName.trim() || !teamName || selectedIds.length !== 3;
+
+            const handleAdminLogin = () => {
+                if (adminPass === ADMIN_PASSWORD) {
+                    setIsAdmin(true);
+                    setView('admin');
+                } else {
+                    notify("パスワードが違います");
+                }
+            };
 
             return (
                 <div className="min-h-screen pb-40 text-slate-800">
@@ -219,7 +232,6 @@
                                     </div>
                                 </div>
 
-                                {/* ガイドメッセージ */}
                                 {isSubmitDisabled && (
                                     <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 animate-pulse">
                                         <p className="text-[10px] text-rose-500 font-black text-center uppercase tracking-widest">
@@ -316,8 +328,8 @@
                     <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/90 backdrop-blur-xl border-t border-slate-100 flex justify-center gap-3 z-40 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
                         {!isAdmin ? (
                             <div className="flex gap-2 w-full max-w-xs animate-in slide-in-from-bottom duration-300">
-                                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="flex-1 p-4 bg-slate-100 rounded-2xl outline-none text-xs font-bold focus:ring-2 focus:ring-indigo-200 transition-all border-none" placeholder="Admin Pass" />
-                                <button onClick={() => adminPass === "admin123" ? setIsAdmin(true) : notify("パスワードが違います")} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-transform">管理画面</button>
+                                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="flex-1 p-4 bg-slate-100 rounded-2xl outline-none text-xs font-bold focus:ring-2 focus:ring-indigo-200 transition-all border-none" placeholder="パスワードを入力" />
+                                <button onClick={handleAdminLogin} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-transform">管理画面</button>
                             </div>
                         ) : (
                             <button onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} className="bg-indigo-600 text-white px-12 py-4 rounded-full font-black text-sm shadow-2xl shadow-indigo-200 active:scale-95 transition-all">
