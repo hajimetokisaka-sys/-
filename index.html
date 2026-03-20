@@ -549,6 +549,13 @@
                                             <button 
                                                 onClick={() => { 
                                                     if(newSoundName && newSoundTeam){ 
+                                                        // 1チーム1サウンド制限のチェック
+                                                        const alreadyHasSound = sounds.find(s => s.teamName === newSoundTeam);
+                                                        if (alreadyHasSound) {
+                                                            notify(`チーム「${newSoundTeam}」はすでに登録済です`);
+                                                            return;
+                                                        }
+
                                                         addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), { 
                                                             name: newSoundName, 
                                                             teamName: newSoundTeam,
@@ -566,6 +573,7 @@
                                                 追加
                                             </button>
                                         </div>
+                                        <p className="text-[9px] text-slate-400 font-bold ml-1 italic">※1チームにつきサウンドは1つまで登録可能です</p>
                                     </div>
                                 </div>
 
