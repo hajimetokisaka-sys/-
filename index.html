@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nana Event Voting</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <!-- data-type="module" を追加して ESM import を有効化 -->
+    <script type="text/babel" data-type="module">
+        // ESM import は常に先頭に配置
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const { useState, useEffect } = React;
+
+        // --- User Firebase Config ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCSCz-mN7eazAhj0ZycU-06M2vUjQ2YKOM",
+            authDomain: "kyokousai-senyou.firebaseapp.com",
+            projectId: "kyokousai-senyou",
+            storageBucket: "kyokousai-senyou.firebasestorage.app",
+            messagingSenderId: "710981006643",
+            appId: "1:710981006643:web:417becd81133872bf83a46"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = "nana-event-manager";
+
+        // --- Lucide Icon Helper ---
+        const Icon = ({ name, className }) => {
+            const [iconHtml, setIconHtml] = useState("");
+            useEffect(() => {
+                if (window.lucide) {
+                    const icon = window.lucide.icons[name];
+                    if (icon) setIconHtml(icon.toSvg());
+                }
+            }, [name]);
+            return <span className={className} dangerouslySetInnerHTML={{ __html: iconHtml }} />;
+        };
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [sounds, setSounds] = useState([]);
+            const [votes, setVotes] = useState([]);
+            const [eventConfig, setEventConfig] = useState({ title: 'nana Event Voting', imageUrl: '' });
+            const [view, setView] = useState('vote');
+            const [voterName, setVoterName] = useState('');
+            const [teamName, setTeamName] = useState('');
+            const [selectedIds, setSelectedIds] = useState([]);
+            const [newSoundName, setNewSoundName] = useState('');
+            const [adminPass, setAdminPass] = useState('');
+            const [editTitle, setEditTitle] = useState('');
+            const [editImageUrl, setEditImageUrl] = useState('');
+            const [showToast, setShowToast] = useState(null);
+
+            useEffect(() => {
+                signInAnonymously(auth).catch(console.error);
+                return onAuthStateChanged(auth, setUser);
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const unsubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), (ds) => {
+                    if (ds.exists()) {
+                        const d = ds.data();
+                        setEventConfig(d);
+                        setEditTitle(d.title || '');
+                        setEditImageUrl(d.imageUrl || '');
+                    }
+                });
+                const unsubSounds = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), (s) => {
+                    setSounds(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+                const unsubVotes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), (s) => {
+                    setVotes(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+                return () => { unsubConfig(); unsubSounds(); unsubVotes(); };
+            }, [user]);
+
+            const notify = (msg) => { setShowToast(msg); setTimeout(() => setShowToast(null), 3000); };
+            
+            const handleImageUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (file.size > 800 * 1024) return notify("800KB以下にしてください");
+                const reader = new FileReader();
+                reader.onloadend = () => { setEditImageUrl(reader.result); notify("読込完了（保存してください）"); };
+                reader.readAsDataURL(file);
+            };
+
+            const submitVote = async () => {
+                if (!user || selectedIds.length !== 3) return;
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), {
+                    voterName, teamName, selectedIds, timestamp: new Date().toISOString()
+                });
+                setView('thanks');
+            };
+
+            const voteCounts = (() => {
+                const c = {}; sounds.forEach(s => c[s.id] = 0);
+                votes.forEach(v => v.selectedIds.forEach(id => { if (c[id] !== undefined) c[id]++; }));
+                return c;
+            })();
+
+            return (
+                <div className="min-h-screen pb-32">
+                    {showToast && <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl text-xs font-bold">{showToast}</div>}
+                    
+                    <div className="bg-gradient-to-r from-indigo-600 to-purple-500 p-6 text-white rounded-b-3xl shadow-lg mb-6 text-center">
+                        <h1 className="text-xl font-bold">{eventConfig.title || 'nana Event'}</h1>
+                    </div>
+
+                    <main className="max-w-md mx-auto px-4 space-y-6">
+                        {view === 'vote' ? (
+                            <>
+                                {eventConfig.imageUrl && <img src={eventConfig.imageUrl} className="w-full aspect-video rounded-2xl object-cover shadow-lg" />}
+                                <div className="bg-white p-6 rounded-2xl shadow-sm space-y-4">
+                                    <input type="text" placeholder="nana名" value={voterName} onChange={e => setVoterName(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 outline-none text-sm" />
+                                    <input type="text" placeholder="チーム名" value={teamName} onChange={e => setTeamName(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 outline-none text-sm" />
+                                </div>
+                                <div className="space-y-3">
+                                    <p className="text-xs font-bold text-slate-500 uppercase px-1">選択中: {selectedIds.length}/3</p>
+                                    {sounds.map(s => (
+                                        <button key={s.id} onClick={() => setSelectedIds(p => p.includes(s.id) ? p.filter(i => i !== s.id) : (p.length < 3 ? [...p, s.id] : p))} className={`w-full p-4 rounded-2xl border-2 flex justify-between items-center transition-all ${selectedIds.includes(s.id) ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-transparent bg-white shadow-sm'}`}>
+                                            <span className="text-sm font-bold">{s.name}</span>
+                                            <div className={`w-5 h-5 rounded-full border-2 ${selectedIds.includes(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`} />
+                                        </button>
+                                    ))}
+                                </div>
+                                <button disabled={!voterName || selectedIds.length !== 3} onClick={submitVote} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl disabled:bg-slate-200">送信する</button>
+                            </>
+                        ) : view === 'thanks' ? (
+                            <div className="text-center py-20">
+                                <h2 className="text-2xl font-bold">投票完了！</h2>
+                                <button onClick={() => setView('vote')} className="mt-8 text-indigo-600 font-bold underline">戻る</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="bg-white p-4 rounded-xl shadow-sm space-y-3">
+                                    <input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full p-2 bg-slate-50 rounded" placeholder="イベントタイトル" />
+                                    <label className="block p-4 border-2 border-dashed border-slate-200 rounded-xl text-center cursor-pointer text-xs text-slate-400">
+                                        画像をアップロード
+                                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                                    </label>
+                                    <button onClick={() => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'event'), { title: editTitle, imageUrl: editImageUrl }).then(() => notify("保存完了"))} className="w-full bg-indigo-600 text-white py-2 rounded font-bold">設定保存</button>
+                                </div>
+                                <div className="bg-white p-4 rounded-xl shadow-sm flex gap-2">
+                                    <input type="text" value={newSoundName} onChange={e => setNewSoundName(e.target.value)} className="flex-1 p-2 bg-slate-50 rounded" placeholder="追加サウンド名" />
+                                    <button onClick={() => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sounds'), { name: newSoundName }).then(() => setNewSoundName(''))} className="bg-emerald-600 text-white px-4 rounded font-bold">追加</button>
+                                </div>
+                                <div className="bg-white p-4 rounded-xl shadow-sm space-y-4">
+                                    {sounds.map(s => (
+                                        <div key={s.id} className="space-y-1">
+                                            <div className="flex justify-between text-xs font-bold">
+                                                <span>{s.name}</span>
+                                                <span className="text-indigo-600">{voteCounts[s.id] || 0} 票</span>
+                                            </div>
+                                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                                <div className="bg-indigo-500 h-full transition-all" style={{ width: `${votes.length ? (voteCounts[s.id] / (votes.length * 3) * 100 * 3) : 0}%` }} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => confirm("リセットしますか？") && getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'votes')).then(qs => { const b = writeBatch(db); qs.forEach(d => b.delete(d.ref)); b.commit(); })} className="w-full py-2 border border-rose-200 text-rose-500 rounded text-xs font-bold">全リセット</button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <footer className="fixed bottom-0 left-0 right-0 p-5 bg-white/80 backdrop-blur-md border-t flex justify-center gap-2">
+                        {!isAdmin ? (
+                            <div className="flex gap-2 w-full max-w-xs">
+                                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="flex-1 p-2 bg-slate-100 rounded outline-none text-xs" placeholder="PW: admin123" />
+                                <button onClick={() => adminPass === "admin123" ? setIsAdmin(true) : notify("PWミス")} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-xs">管理</button>
+                            </div>
+                        ) : (
+                            <button onClick={() => setView(v => v === 'admin' ? 'vote' : 'admin')} className="bg-indigo-600 text-white px-10 py-3 rounded-full font-bold shadow-xl">
+                                {view === 'admin' ? '投票画面' : '管理画面'}
+                            </button>
+                        )}
+                    </footer>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
